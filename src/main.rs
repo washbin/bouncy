@@ -1,7 +1,4 @@
-use std::fmt::{Display, Formatter};
-
-mod parse_args;
-use self::parse_args::Frame;
+use pancurses::{endwin, Input, Window};
 
 enum VertDir {
     Up,
@@ -12,12 +9,17 @@ enum HorizDir {
     Left,
     Right,
 }
-
+//{{{
 struct Ball {
     x: u32,
     y: u32,
     vert_dir: VertDir,
     horiz_dir: HorizDir,
+}
+//}}}
+struct Frame {
+    width: u32,
+    height: u32,
 }
 
 struct Game {
@@ -26,62 +28,29 @@ struct Game {
 }
 
 impl Game {
-    fn new(frame: Frame) -> Game {
-        Game {
-            frame,
-            ball: Ball {
-                x: 2,
-                y: 4,
-                vert_dir: VertDir::Up,
-                horiz_dir: HorizDir::Left,
-            },
+    fn new(window: &Window) -> Result<Game, String> {
+        let (max_y, max_x) = window.get_max_yx();
+        if max_y < 1 || max_x < 10 {
+            return Err(String::from("Window is too small, exiting."));
         }
+
+        let frame = Frame {
+            height: max_y as u32 - 2,
+            width: max_x as u32 - 2,
+        };
+        let ball = Ball {
+            x: 2,
+            y: 4,
+            vert_dir: VertDir::Up,
+            horiz_dir: HorizDir::Left,
+        };
+
+        Ok(Game { frame, ball })
     }
 
     fn step(&mut self) {
         self.ball.bounce(&self.frame);
         self.ball.mv();
-    }
-}
-
-impl Display for Game {
-    fn fmt(&self, fmt: &mut Formatter) -> std::fmt::Result {
-        let top_bottom = |fmt: &mut Formatter| {
-            if let Err(err) = write!(fmt, "+") {
-                panic!("{}", err);
-            }
-            for _ in 0..self.frame.width {
-                if let Err(err) = write!(fmt, "-") {
-                    panic!("{}", err);
-                };
-            }
-            writeln!(fmt, "+")
-        };
-
-        if let Err(err) = top_bottom(fmt) {
-            println!("{}", err)
-        }
-
-        for row in 0..self.frame.height {
-            if let Err(err) = write!(fmt, "|") {
-                panic!("{}", err);
-            };
-            for column in 0..self.frame.width {
-                let c = if row == self.ball.y && column == self.ball.x {
-                    'o'
-                } else {
-                    ' '
-                };
-                if let Err(err) = write!(fmt, "{}", c) {
-                    panic!("{}", err);
-                };
-            }
-            if let Err(err) = writeln!(fmt, "|") {
-                panic!("{}", err);
-            };
-        }
-
-        top_bottom(fmt)
     }
 }
 
@@ -113,13 +82,29 @@ impl Ball {
     }
 }
 
-fn main() -> Result<(), self::parse_args::ParseError> {
-    let frame = parse_args::parse_args()?;
-    let mut game = Game::new(frame);
-    let sleep_duration = std::time::Duration::from_millis(33);
+fn main() -> Result<(), String> {
+    let window = pancurses::initscr();
+    window.timeout(33);
+
+    let mut game = Game::new(&window)?;
+
     loop {
-        println!("{}", game);
-        game.step();
-        std::thread::sleep(sleep_duration);
+        window.clear();
+        window.border('|', '|', '-', '-', '+', '+', '+', '+');
+        window.mvaddch(game.ball.y as i32 + 1, game.ball.x as i32 + 1, 'o');
+        window.mv(0, 0);
+        window.refresh();
+
+        match window.getch() {
+            Some(Input::Character('q')) => {
+                endwin();
+                println!("Thanks for playing!");
+                return Ok(());
+            }
+            Some(Input::KeyResize) => {
+                game = Game::new(&window)?;
+            }
+            _ => game.step(),
+        }
     }
 }
